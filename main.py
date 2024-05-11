@@ -2,8 +2,9 @@ import sys
 import ast
 import csv
 import json
+import xml.etree.ElementTree as ET
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog,
-                             QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QTextEdit, QLineEdit, QHBoxLayout)
+                             QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QTextEdit, QLineEdit, QHBoxLayout, QTreeWidget, QTreeWidgetItem)
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 from PyQt5.QtGui import QColor, QFont
 
@@ -19,8 +20,7 @@ class MetricsDialog(QDialog):
         self.setGeometry(100, 100, 400, 300)
         layout = QVBoxLayout()
         self.metricsText = QTextEdit()
-        metrics_info = "\n".join(f"{key}: {value}" for key, value in metrics.items())
-        self.metricsText.setPlainText(metrics_info)
+        self.metricsText.setPlainText(metrics)
         self.metricsText.setReadOnly(True)
         layout.addWidget(self.metricsText)
         self.setLayout(layout)
@@ -36,6 +36,27 @@ class DetailedInfoDialog(QDialog):
         self.infoText.setReadOnly(True)
         layout.addWidget(self.infoText)
         self.setLayout(layout)
+
+class ASTViewerDialog(QDialog):
+    def __init__(self, ast_tree):
+        super().__init__()
+        self.setWindowTitle("AST Viewer")
+        self.setGeometry(100, 100, 600, 400)
+        layout = QVBoxLayout()
+        self.treeWidget = QTreeWidget()
+        self.treeWidget.setHeaderLabels(["AST Structure"])
+        self.populateTree(ast_tree)
+        layout.addWidget(self.treeWidget)
+        self.setLayout(layout)
+
+    def populateTree(self, node, parent=None):
+        item = QTreeWidgetItem([type(node).__name__])
+        if parent is None:
+            self.treeWidget.addTopLevelItem(item)
+        else:
+            parent.addChild(item)
+        for child in ast.iter_child_nodes(node):
+            self.populateTree(child, item)
 
 class SymbolTableGenerator(QWidget):
     def __init__(self):
@@ -76,6 +97,10 @@ class SymbolTableGenerator(QWidget):
         self.export_button = QPushButton('Export Symbol Table')
         self.export_button.clicked.connect(self.exportSymbolTable)
         layout.addWidget(self.export_button)
+
+        self.ast_button = QPushButton('View AST')
+        self.ast_button.clicked.connect(self.showAST)
+        layout.addWidget(self.ast_button)
 
         self.setLayout(layout)
 
@@ -119,6 +144,12 @@ class SymbolTableGenerator(QWidget):
                 for target in child.targets:
                     if isinstance(target, ast.Name):
                         self.add_symbol(target.id, 'Variable', scope, child.lineno, id(target))
+            elif isinstance(child, ast.Import):
+                for name in child.names:
+                    self.add_symbol(name.name, 'Import', scope, child.lineno, id(name))
+            elif isinstance(child, ast.ImportFrom):
+                for name in child.names:
+                    self.add_symbol(name.name, 'Import', f"{scope} (from {child.module})", child.lineno, id(name))
             else:
                 self.process_node(child, scope)
 
@@ -137,37 +168,9 @@ class SymbolTableGenerator(QWidget):
             item = self.table.item(row, 0)
             self.table.setRowHidden(row, filter_text not in item.text().lower())
 
-    def showSymbolDetails(self, item):
-        symbol_name = self.table.item(item.row(), 0).text()
-        details = self.find_symbol_details(symbol_name)
-        dialog = DetailedInfoDialog(symbol_name, details)
+    def showAST(self):
+        dialog = ASTViewerDialog(self.ast_tree)
         dialog.exec_()
-
-    def find_symbol_details(self, symbol_name):
-        for node in ast.walk(self.ast_tree):
-            if hasattr(node, 'name') and node.name == symbol_name:
-                if isinstance(node, ast.FunctionDef):
-                    return self.extract_function_details(node)
-                elif isinstance(node, ast.ClassDef):
-                    return self.extract_class_details(node)
-                elif isinstance(node, ast.Assign):
-                    return self.extract_assignment_details(node)
-        return "Details not found."
-
-    def extract_function_details(self, node):
-        args = ', '.join(arg.arg for arg in node.args.args)
-        return_type = ast.unparse(node.returns) if node.returns else 'None'
-        docstring = ast.get_docstring(node) or 'No docstring available'
-        return f"Function {node.name}\nArguments: {args}\nReturn Type: {return_type}\nDocstring: {docstring}"
-
-    def extract_class_details(self, node):
-        bases = ', '.join(ast.unparse(base) for base in node.bases)
-        docstring = ast.get_docstring(node) or 'No docstring available'
-        return f"Class {node.name}\nBases: {bases}\nDocstring: {docstring}"
-
-    def extract_assignment_details(self, node):
-        targets = ', '.join(ast.unparse(target) for target in node.targets)
-        return f"Assigned to: {targets}"
 
     def calculateMetrics(self):
         metrics = {
@@ -175,8 +178,10 @@ class SymbolTableGenerator(QWidget):
             'Lines of Code': self.calculateLinesOfCode(),
             'Number of Functions': self.calculateNumberOfFunctions(),
             'Number of Classes': self.calculateNumberOfClasses(),
+            'Number of Imports': self.calculateNumberOfImports()
         }
-        dialog = MetricsDialog(metrics)
+        metrics_info = "\n".join(f"{key}: {value}" for key, value in metrics.items())
+        dialog = MetricsDialog(metrics_info)
         dialog.exec_()
 
     def calculateCyclomaticComplexity(self):
@@ -195,16 +200,21 @@ class SymbolTableGenerator(QWidget):
     def calculateNumberOfClasses(self):
         return len([node for node in ast.walk(self.ast_tree) if isinstance(node, ast.ClassDef)])
 
+    def calculateNumberOfImports(self):
+        return len([node for node in ast.walk(self.ast_tree) if isinstance(node, (ast.Import, ast.ImportFrom))])
+
     def exportSymbolTable(self):
         file_dialog = QFileDialog(self)
         file_dialog.setAcceptMode(QFileDialog.AcceptSave)
-        file_dialog.setNameFilters(["CSV files (*.csv)", "JSON files (*.json)"])
+        file_dialog.setNameFilters(["CSV files (*.csv)", "JSON files (*.json)", "XML files (*.xml)"])
         if file_dialog.exec_():
             file_path = file_dialog.selectedFiles()[0]
             if file_path.endswith('.csv'):
                 self.exportToCSV(file_path)
             elif file_path.endswith('.json'):
                 self.exportToJSON(file_path)
+            elif file_path.endswith('.xml'):
+                self.exportToXML(file_path)
 
     def exportToCSV(self, file_path):
         try:
@@ -224,6 +234,22 @@ class SymbolTableGenerator(QWidget):
             QMessageBox.information(self, 'Export Successful', f'Symbol table exported to {file_path}')
         except Exception as e:
             QMessageBox.critical(self, 'Export Failed', f'Failed to export JSON: {str(e)}')
+
+    def exportToXML(self, file_path):
+        try:
+            root = ET.Element("SymbolTable")
+            for name, typ, scope, line, address in self.symbol_table:
+                symbol_element = ET.SubElement(root, "Symbol")
+                ET.SubElement(symbol_element, "Name").text = name
+                ET.SubElement(symbol_element, "Type").text = typ
+                ET.SubElement(symbol_element, "Scope").text = scope
+                ET.SubElement(symbol_element, "Line").text = str(line)
+                ET.SubElement(symbol_element, "Address").text = str(address)
+            tree = ET.ElementTree(root)
+            tree.write(file_path, encoding='utf-8', xml_declaration=True)
+            QMessageBox.information(self, 'Export Successful', f'Symbol table exported to {file_path}')
+        except Exception as e:
+            QMessageBox.critical(self, 'Export Failed', f'Failed to export XML: {str(e)}')
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

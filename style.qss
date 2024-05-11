@@ -2,13 +2,14 @@
 QWidget {
     font-family: Arial, sans-serif;
     font-size: 14px;
+    background-color: #f0f0f0;
     margin: 5px;
     padding: 5px;
 }
 
 /* Button Styles */
 QPushButton {
-    background-color: #4CAF50;
+    background-color: #007BFF;
     border: none;
     color: white;
     padding: 10px 20px;
@@ -17,7 +18,7 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background-color: #45a049;
+    background-color: #0056b3;
 }
 
 /* Text Editor Styles */
@@ -25,7 +26,7 @@ QsciScintilla, QPlainTextEdit, QTextEdit {
     border: 1px solid #ccc;
     padding: 10px;
     font-family: monospace;
-    background-color: #f9f9f9;
+    background-color: #ffffff;
 }
 
 /* Table Styles */
@@ -33,6 +34,7 @@ QTableWidget {
     border: 1px solid #ccc;
     font-family: Arial, sans-serif;
     font-size: 14px;
+    background-color: #ffffff;
 }
 
 QTableWidget::item {
@@ -44,4 +46,11 @@ QLineEdit {
     padding: 5px;
     font-size: 14px;
     border: 1px solid #ccc;
+    background-color: #ffffff;
+}
+
+/* Tree Widget Styles */
+QTreeWidget {
+    border: 1px solid #ccc;
+    background-color: #ffffff;
 }
