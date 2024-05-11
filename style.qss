@@ -1,7 +1,12 @@
+/* General Styles */
 QWidget {
     font-family: Arial, sans-serif;
+    font-size: 14px;
+    margin: 5px;
+    padding: 5px;
 }
 
+/* Button Styles */
 QPushButton {
     background-color: #4CAF50;
     border: none;
@@ -13,4 +18,30 @@ QPushButton {
 
 QPushButton:hover {
     background-color: #45a049;
+}
+
+/* Text Editor Styles */
+QsciScintilla, QPlainTextEdit, QTextEdit {
+    border: 1px solid #ccc;
+    padding: 10px;
+    font-family: monospace;
+    background-color: #f9f9f9;
+}
+
+/* Table Styles */
+QTableWidget {
+    border: 1px solid #ccc;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+}
+
+QTableWidget::item {
+    padding: 5px;
+}
+
+/* Search Bar Styles */
+QLineEdit {
+    padding: 5px;
+    font-size: 14px;
+    border: 1px solid #ccc;
 }

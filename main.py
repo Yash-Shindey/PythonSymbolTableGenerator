@@ -1,8 +1,14 @@
 import sys
 import ast
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog,
-                             QMessageBox, QTableWidget, QTableWidgetItem, QPlainTextEdit, QDialog, QTextEdit)
-from PyQt5.QtGui import QTextCursor
+                             QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QTextEdit, QLineEdit)
+from PyQt5.Qsci import QsciScintilla, QsciLexerPython
+from PyQt5.QtGui import QColor, QFont
+
+class PythonHighlighter(QsciLexerPython):
+    def __init__(self, parent=None):
+        super(PythonHighlighter, self).__init__(parent)
+        self.setDefaultFont(QFont("Courier", 10))
 
 class MetricsDialog(QDialog):
     def __init__(self, metrics):
@@ -34,10 +40,6 @@ class SymbolTableGenerator(QWidget):
         super().__init__()
         self.initUI()
 
-    def __init__(self):
-        super().__init__()
-        self.initUI()
-
     def initUI(self):
         self.setWindowTitle('Symbol Table Generator')
         layout = QVBoxLayout()
@@ -45,17 +47,24 @@ class SymbolTableGenerator(QWidget):
         self.label = QLabel('Select a Python file to generate symbol table:')
         layout.addWidget(self.label)
 
-        self.editor = QPlainTextEdit()
+        self.editor = QsciScintilla()
+        self.editor.setLexer(PythonHighlighter(self.editor))
+        self.editor.setUtf8(True)
         layout.addWidget(self.editor)
 
         self.button = QPushButton('Browse')
         self.button.clicked.connect(self.selectFile)
         layout.addWidget(self.button)
 
+        self.searchBar = QLineEdit()
+        self.searchBar.setPlaceholderText('Search...')
+        self.searchBar.textChanged.connect(self.filterSymbols)
+        layout.addWidget(self.searchBar)
+
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(['Symbol', 'Type', 'Scope', 'Line', 'Address'])
-        self.table.itemDoubleClicked.connect(self.navigateToLine)  # Connect the double-click event
+        self.table.itemDoubleClicked.connect(self.navigateToLine)
         layout.addWidget(self.table)
 
         self.metrics_button = QPushButton('Calculate Metrics')
@@ -75,7 +84,7 @@ class SymbolTableGenerator(QWidget):
         try:
             with open(file_path, 'r') as file:
                 content = file.read()
-                self.editor.setPlainText(content)
+                self.editor.setText(content)
             self.ast_tree = ast.parse(content)
             self.generateSymbolTable()
         except Exception as e:
@@ -94,43 +103,40 @@ class SymbolTableGenerator(QWidget):
 
     def process_node(self, node, scope='Global'):
         for child in ast.iter_child_nodes(node):
-            if isinstance(child, ast.FunctionDef) or isinstance(child, ast.AsyncFunctionDef):
-                line_no = child.lineno
-                address = id(child)
-                self.symbol_table.append((child.name, 'Function', scope, line_no, address))
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self.add_symbol(child.name, 'Function', scope, child.lineno, id(child))
+                self.process_node(child, child.name)
             elif isinstance(child, ast.ClassDef):
-                line_no = child.lineno
-                address = id(child)
-                self.symbol_table.append((child.name, 'Class', scope, line_no, address))
+                self.add_symbol(child.name, 'Class', scope, child.lineno, id(child))
+                self.process_node(child, child.name)
             elif isinstance(child, ast.Assign):
-                line_no = child.lineno
-                # Handle multiple targets in one assignment
                 for target in child.targets:
                     if isinstance(target, ast.Name):
-                        address = id(target)
-                        self.symbol_table.append((target.id, 'Variable', scope, line_no, address))
-            self.process_node(child, scope)
-   
+                        self.add_symbol(target.id, 'Variable', scope, child.lineno, id(target))
+            else:
+                self.process_node(child, scope)
+
+    def add_symbol(self, name, typ, scope, line, address):
+        self.symbol_table.append((name, typ, scope, line, address))
+
     def navigateToLine(self, item):
-        line_number = self.table.item(item.row(), 3).text()
-        cursor = self.editor.textCursor()
-        cursor.setPosition(0)  # Move cursor to start of the document
-        cursor.movePosition(QTextCursor.Down, QTextCursor.MoveAnchor, int(line_number) - 1)
-        self.editor.setTextCursor(cursor)
+        line_number = int(self.table.item(item.row(), 3).text())
+        self.editor.setCursorPosition(line_number - 1, 0)
         self.editor.setFocus()
-        
+
+    def filterSymbols(self):
+        filter_text = self.searchBar.text().lower()
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            self.table.setRowHidden(row, filter_text not in item.text().lower())
+
     def showSymbolDetails(self, item):
         symbol_name = self.table.item(item.row(), 0).text()
         details = self.find_symbol_details(symbol_name)
         dialog = DetailedInfoDialog(symbol_name, details)
         dialog.exec_()
 
-     # ... (other methods)
-
     def find_symbol_details(self, symbol_name):
-        """
-        Search for details of the symbol with the given name.
-        """
         for node in ast.walk(self.ast_tree):
             if hasattr(node, 'name') and node.name == symbol_name:
                 if isinstance(node, ast.FunctionDef):
@@ -142,31 +148,19 @@ class SymbolTableGenerator(QWidget):
         return "Details not found."
 
     def extract_function_details(self, node):
-        """
-        Extract details from a function definition.
-        """
         args = ', '.join(arg.arg for arg in node.args.args)
         return_type = ast.unparse(node.returns) if node.returns else 'None'
         return f"Function {node.name}\nArguments: {args}\nReturn Type: {return_type}"
 
     def extract_class_details(self, node):
-        """
-        Extract details from a class definition.
-        """
         bases = ', '.join(ast.unparse(base) for base in node.bases)
         return f"Class {node.name}\nBases: {bases}"
 
     def extract_assignment_details(self, node):
-        """
-        Extract details from an assignment.
-        """
         targets = ', '.join(ast.unparse(target) for target in node.targets)
         return f"Assigned to: {targets}"
 
     def calculateMetrics(self):
-        """
-        Calculate various code metrics.
-        """
         metrics = {
             'Cyclomatic Complexity': self.calculateCyclomaticComplexity(),
             'Lines of Code': self.calculateLinesOfCode(),
@@ -177,9 +171,6 @@ class SymbolTableGenerator(QWidget):
         dialog.exec_()
 
     def calculateCyclomaticComplexity(self):
-        """
-        Calculate the cyclomatic complexity of the code.
-        """
         complexity = 0
         for node in ast.walk(self.ast_tree):
             if isinstance(node, (ast.If, ast.While, ast.For, ast.AsyncFor, ast.And, ast.Or)):
@@ -187,23 +178,13 @@ class SymbolTableGenerator(QWidget):
         return complexity + 1
 
     def calculateLinesOfCode(self):
-        """
-        Calculate the total number of lines of code.
-        """
-        return len(self.editor.toPlainText().splitlines())
+        return len(self.editor.text().splitlines())
 
     def calculateNumberOfFunctions(self):
-        """
-        Calculate the total number of function definitions.
-        """
         return len([node for node in ast.walk(self.ast_tree) if isinstance(node, ast.FunctionDef)])
 
     def calculateNumberOfClasses(self):
-        """
-        Calculate the total number of class definitions.
-        """
         return len([node for node in ast.walk(self.ast_tree) if isinstance(node, ast.ClassDef)])
-
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
