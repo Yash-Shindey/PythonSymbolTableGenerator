@@ -1,7 +1,9 @@
 import sys
 import ast
+import csv
+import json
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog,
-                             QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QTextEdit, QLineEdit)
+                             QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QTextEdit, QLineEdit, QHBoxLayout)
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 from PyQt5.QtGui import QColor, QFont
 
@@ -71,6 +73,10 @@ class SymbolTableGenerator(QWidget):
         self.metrics_button.clicked.connect(self.calculateMetrics)
         layout.addWidget(self.metrics_button)
 
+        self.export_button = QPushButton('Export Symbol Table')
+        self.export_button.clicked.connect(self.exportSymbolTable)
+        layout.addWidget(self.export_button)
+
         self.setLayout(layout)
 
     def selectFile(self):
@@ -122,6 +128,7 @@ class SymbolTableGenerator(QWidget):
     def navigateToLine(self, item):
         line_number = int(self.table.item(item.row(), 3).text())
         self.editor.setCursorPosition(line_number - 1, 0)
+        self.editor.setSelection(line_number - 1, 0, line_number - 1, len(self.editor.text(line_number)))
         self.editor.setFocus()
 
     def filterSymbols(self):
@@ -150,11 +157,13 @@ class SymbolTableGenerator(QWidget):
     def extract_function_details(self, node):
         args = ', '.join(arg.arg for arg in node.args.args)
         return_type = ast.unparse(node.returns) if node.returns else 'None'
-        return f"Function {node.name}\nArguments: {args}\nReturn Type: {return_type}"
+        docstring = ast.get_docstring(node) or 'No docstring available'
+        return f"Function {node.name}\nArguments: {args}\nReturn Type: {return_type}\nDocstring: {docstring}"
 
     def extract_class_details(self, node):
         bases = ', '.join(ast.unparse(base) for base in node.bases)
-        return f"Class {node.name}\nBases: {bases}"
+        docstring = ast.get_docstring(node) or 'No docstring available'
+        return f"Class {node.name}\nBases: {bases}\nDocstring: {docstring}"
 
     def extract_assignment_details(self, node):
         targets = ', '.join(ast.unparse(target) for target in node.targets)
@@ -185,6 +194,36 @@ class SymbolTableGenerator(QWidget):
 
     def calculateNumberOfClasses(self):
         return len([node for node in ast.walk(self.ast_tree) if isinstance(node, ast.ClassDef)])
+
+    def exportSymbolTable(self):
+        file_dialog = QFileDialog(self)
+        file_dialog.setAcceptMode(QFileDialog.AcceptSave)
+        file_dialog.setNameFilters(["CSV files (*.csv)", "JSON files (*.json)"])
+        if file_dialog.exec_():
+            file_path = file_dialog.selectedFiles()[0]
+            if file_path.endswith('.csv'):
+                self.exportToCSV(file_path)
+            elif file_path.endswith('.json'):
+                self.exportToJSON(file_path)
+
+    def exportToCSV(self, file_path):
+        try:
+            with open(file_path, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['Symbol', 'Type', 'Scope', 'Line', 'Address'])
+                for row in self.symbol_table:
+                    writer.writerow(row)
+            QMessageBox.information(self, 'Export Successful', f'Symbol table exported to {file_path}')
+        except Exception as e:
+            QMessageBox.critical(self, 'Export Failed', f'Failed to export CSV: {str(e)}')
+
+    def exportToJSON(self, file_path):
+        try:
+            with open(file_path, 'w') as jsonfile:
+                json.dump(self.symbol_table, jsonfile, indent=4)
+            QMessageBox.information(self, 'Export Successful', f'Symbol table exported to {file_path}')
+        except Exception as e:
+            QMessageBox.critical(self, 'Export Failed', f'Failed to export JSON: {str(e)}')
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
