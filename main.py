@@ -5,13 +5,12 @@ import json
 import xml.etree.ElementTree as ET
 import traceback
 import subprocess
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog,
-                             QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QTextEdit, QLineEdit, 
-                             QHBoxLayout, QTreeWidget, QTreeWidgetItem, QAction, QMenu, QInputDialog)
+from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel, 
+                             QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QTextEdit, 
+                             QLineEdit, QTreeWidget, QTreeWidgetItem, QAction, QMenu, QInputDialog, QToolBar)
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import Qt
-import io
 
 class PythonHighlighter(QsciLexerPython):
     def __init__(self, parent=None):
@@ -70,78 +69,63 @@ class SymbolTableGenerator(QWidget):
 
     def initUI(self):
         self.setWindowTitle('Symbol Table Generator')
-        layout = QVBoxLayout()
+        main_layout = QVBoxLayout()
 
-        self.label = QLabel('Select a Python file to generate symbol table:')
-        layout.addWidget(self.label)
-
+        # Initialize the editor first
         self.editor = QsciScintilla()
         self.editor.setLexer(PythonHighlighter(self.editor))
         self.editor.setUtf8(True)
         self.editor.setMarginType(0, QsciScintilla.NumberMargin)
         self.editor.setMarginWidth(0, '0000')
-        layout.addWidget(self.editor)
+        main_layout.addWidget(self.editor)
 
-        button_layout = QHBoxLayout()
-        
-        self.button = QPushButton('Browse')
-        self.button.clicked.connect(self.selectFile)
-        button_layout.addWidget(self.button)
+        toolbar = QToolBar()
+
+        self.browse_button = QPushButton('Browse')
+        self.browse_button.clicked.connect(self.selectFile)
+        toolbar.addWidget(self.browse_button)
 
         self.save_button = QPushButton('Save')
         self.save_button.clicked.connect(self.saveFile)
-        button_layout.addWidget(self.save_button)
+        toolbar.addWidget(self.save_button)
 
         self.cut_button = QPushButton('Cut')
         self.cut_button.clicked.connect(self.editor.cut)
-        button_layout.addWidget(self.cut_button)
+        toolbar.addWidget(self.cut_button)
 
         self.copy_button = QPushButton('Copy')
         self.copy_button.clicked.connect(self.editor.copy)
-        button_layout.addWidget(self.copy_button)
+        toolbar.addWidget(self.copy_button)
 
         self.paste_button = QPushButton('Paste')
         self.paste_button.clicked.connect(self.editor.paste)
-        button_layout.addWidget(self.paste_button)
+        toolbar.addWidget(self.paste_button)
 
         self.undo_button = QPushButton('Undo')
         self.undo_button.clicked.connect(self.editor.undo)
-        button_layout.addWidget(self.undo_button)
+        toolbar.addWidget(self.undo_button)
 
         self.redo_button = QPushButton('Redo')
         self.redo_button.clicked.connect(self.editor.redo)
-        button_layout.addWidget(self.redo_button)
+        toolbar.addWidget(self.redo_button)
 
         self.clear_editor_button = QPushButton('Clear Editor')
         self.clear_editor_button.clicked.connect(self.clearEditor)
-        button_layout.addWidget(self.clear_editor_button)
+        toolbar.addWidget(self.clear_editor_button)
+
+        self.go_to_line_button = QPushButton('Go to Line')
+        self.go_to_line_button.clicked.connect(self.goToLine)
+        toolbar.addWidget(self.go_to_line_button)
 
         self.show_python_version_button = QPushButton('Python Version')
         self.show_python_version_button.clicked.connect(self.showPythonVersion)
-        button_layout.addWidget(self.show_python_version_button)
+        toolbar.addWidget(self.show_python_version_button)
 
         self.toggle_line_numbers_button = QPushButton('Toggle Line Numbers')
         self.toggle_line_numbers_button.clicked.connect(self.toggleLineNumbers)
-        button_layout.addWidget(self.toggle_line_numbers_button)
+        toolbar.addWidget(self.toggle_line_numbers_button)
 
-        self.show_button = QPushButton('Show')
-        show_menu = QMenu()
-        show_vars_action = QAction('Variables', self)
-        show_vars_action.triggered.connect(self.showVariables)
-        show_classes_action = QAction('Classes', self)
-        show_classes_action.triggered.connect(self.showClasses)
-        show_funcs_action = QAction('Functions', self)
-        show_funcs_action.triggered.connect(self.showFunctions)
-        show_callstack_action = QAction('Call Stack', self)
-        show_callstack_action.triggered.connect(self.showCallStack)
-        show_menu.addAction(show_vars_action)
-        show_menu.addAction(show_classes_action)
-        show_menu.addAction(show_funcs_action)
-        show_menu.addAction(show_callstack_action)
-        self.show_button.setMenu(show_menu)
-        button_layout.addWidget(self.show_button)
-
-        layout.addLayout(button_layout)
+        main_layout.addWidget(toolbar)
 
         search_replace_layout = QHBoxLayout()
 
@@ -154,35 +138,39 @@ class SymbolTableGenerator(QWidget):
         self.replace_button.clicked.connect(self.replaceText)
         search_replace_layout.addWidget(self.replace_button)
 
-        layout.addLayout(search_replace_layout)
+        main_layout.addLayout(search_replace_layout)
 
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(['Symbol', 'Type', 'Scope', 'Line', 'Address'])
         self.table.itemDoubleClicked.connect(self.navigateToLine)
-        layout.addWidget(self.table)
+        main_layout.addWidget(self.table)
+
+        action_layout = QHBoxLayout()
 
         self.metrics_button = QPushButton('Calculate Metrics')
         self.metrics_button.clicked.connect(self.calculateMetrics)
-        layout.addWidget(self.metrics_button)
+        action_layout.addWidget(self.metrics_button)
 
         self.export_button = QPushButton('Export Symbol Table')
         self.export_button.clicked.connect(self.exportSymbolTable)
-        layout.addWidget(self.export_button)
+        action_layout.addWidget(self.export_button)
 
         self.ast_button = QPushButton('View AST')
         self.ast_button.clicked.connect(self.showAST)
-        layout.addWidget(self.ast_button)
+        action_layout.addWidget(self.ast_button)
 
         self.uml_button = QPushButton('Generate UML')
         self.uml_button.clicked.connect(self.generateUML)
-        layout.addWidget(self.uml_button)
+        action_layout.addWidget(self.uml_button)
 
         self.doc_button = QPushButton('Generate Documentation')
         self.doc_button.clicked.connect(self.generateDocumentation)
-        layout.addWidget(self.doc_button)
+        action_layout.addWidget(self.doc_button)
 
-        self.setLayout(layout)
+        main_layout.addLayout(action_layout)
+
+        self.setLayout(main_layout)
 
     def selectFile(self):
         file_dialog = QFileDialog(self)
@@ -394,11 +382,11 @@ class SymbolTableGenerator(QWidget):
         except Exception as e:
             QMessageBox.critical(self, 'Documentation Generation Failed', f'Failed to generate documentation: {str(e)}')
 
-    def findText(self):
-        text, ok = QInputDialog.getText(self, 'Find Text', 'Enter text to find:')
-        if ok and text:
-            if not self.editor.findFirst(text, False, False, False, True):
-                QMessageBox.information(self, 'Find Text', f'No occurrences of "{text}" found.')
+    def goToLine(self):
+        line, ok = QInputDialog.getInt(self, 'Go to Line', 'Enter line number:')
+        if ok:
+            self.editor.setCursorPosition(line - 1, 0)
+            self.editor.setFocus()
 
     def replaceText(self):
         find_text, ok1 = QInputDialog.getText(self, 'Replace Text', 'Enter text to find:')

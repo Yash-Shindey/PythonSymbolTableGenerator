@@ -54,3 +54,23 @@ QTreeWidget {
     border: 1px solid #ccc;
     background-color: #ffffff;
 }
+
+/* Toolbar Styles */
+QToolBar {
+    background-color: #007BFF;
+    padding: 5px;
+}
+
+QToolBar QPushButton {
+    background-color: #ffffff;
+    color: #007BFF;
+    font-size: 14px;
+    border: 1px solid #007BFF;
+    border-radius: 3px;
+    padding: 5px 10px;
+}
+
+QToolBar QPushButton:hover {
+    background-color: #0056b3;
+    color: #ffffff;
+}
