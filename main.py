@@ -3,10 +3,15 @@ import ast
 import csv
 import json
 import xml.etree.ElementTree as ET
+import traceback
+import subprocess
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog,
-                             QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QTextEdit, QLineEdit, QHBoxLayout, QTreeWidget, QTreeWidgetItem)
+                             QMessageBox, QTableWidget, QTableWidgetItem, QDialog, QTextEdit, QLineEdit, 
+                             QHBoxLayout, QTreeWidget, QTreeWidgetItem, QAction, QMenu, QInputDialog)
 from PyQt5.Qsci import QsciScintilla, QsciLexerPython
 from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtCore import Qt
+import io
 
 class PythonHighlighter(QsciLexerPython):
     def __init__(self, parent=None):
@@ -73,16 +78,83 @@ class SymbolTableGenerator(QWidget):
         self.editor = QsciScintilla()
         self.editor.setLexer(PythonHighlighter(self.editor))
         self.editor.setUtf8(True)
+        self.editor.setMarginType(0, QsciScintilla.NumberMargin)
+        self.editor.setMarginWidth(0, '0000')
         layout.addWidget(self.editor)
 
+        button_layout = QHBoxLayout()
+        
         self.button = QPushButton('Browse')
         self.button.clicked.connect(self.selectFile)
-        layout.addWidget(self.button)
+        button_layout.addWidget(self.button)
+
+        self.save_button = QPushButton('Save')
+        self.save_button.clicked.connect(self.saveFile)
+        button_layout.addWidget(self.save_button)
+
+        self.cut_button = QPushButton('Cut')
+        self.cut_button.clicked.connect(self.editor.cut)
+        button_layout.addWidget(self.cut_button)
+
+        self.copy_button = QPushButton('Copy')
+        self.copy_button.clicked.connect(self.editor.copy)
+        button_layout.addWidget(self.copy_button)
+
+        self.paste_button = QPushButton('Paste')
+        self.paste_button.clicked.connect(self.editor.paste)
+        button_layout.addWidget(self.paste_button)
+
+        self.undo_button = QPushButton('Undo')
+        self.undo_button.clicked.connect(self.editor.undo)
+        button_layout.addWidget(self.undo_button)
+
+        self.redo_button = QPushButton('Redo')
+        self.redo_button.clicked.connect(self.editor.redo)
+        button_layout.addWidget(self.redo_button)
+
+        self.clear_editor_button = QPushButton('Clear Editor')
+        self.clear_editor_button.clicked.connect(self.clearEditor)
+        button_layout.addWidget(self.clear_editor_button)
+
+        self.show_python_version_button = QPushButton('Python Version')
+        self.show_python_version_button.clicked.connect(self.showPythonVersion)
+        button_layout.addWidget(self.show_python_version_button)
+
+        self.toggle_line_numbers_button = QPushButton('Toggle Line Numbers')
+        self.toggle_line_numbers_button.clicked.connect(self.toggleLineNumbers)
+        button_layout.addWidget(self.toggle_line_numbers_button)
+
+        self.show_button = QPushButton('Show')
+        show_menu = QMenu()
+        show_vars_action = QAction('Variables', self)
+        show_vars_action.triggered.connect(self.showVariables)
+        show_classes_action = QAction('Classes', self)
+        show_classes_action.triggered.connect(self.showClasses)
+        show_funcs_action = QAction('Functions', self)
+        show_funcs_action.triggered.connect(self.showFunctions)
+        show_callstack_action = QAction('Call Stack', self)
+        show_callstack_action.triggered.connect(self.showCallStack)
+        show_menu.addAction(show_vars_action)
+        show_menu.addAction(show_classes_action)
+        show_menu.addAction(show_funcs_action)
+        show_menu.addAction(show_callstack_action)
+        self.show_button.setMenu(show_menu)
+        button_layout.addWidget(self.show_button)
+
+        layout.addLayout(button_layout)
+
+        search_replace_layout = QHBoxLayout()
 
         self.searchBar = QLineEdit()
         self.searchBar.setPlaceholderText('Search...')
         self.searchBar.textChanged.connect(self.filterSymbols)
-        layout.addWidget(self.searchBar)
+        search_replace_layout.addWidget(self.searchBar)
+
+        self.replace_button = QPushButton('Replace')
+        self.replace_button.clicked.connect(self.replaceText)
+        search_replace_layout.addWidget(self.replace_button)
+
+        layout.addLayout(search_replace_layout)
 
         self.table = QTableWidget()
         self.table.setColumnCount(5)
@@ -102,6 +174,14 @@ class SymbolTableGenerator(QWidget):
         self.ast_button.clicked.connect(self.showAST)
         layout.addWidget(self.ast_button)
 
+        self.uml_button = QPushButton('Generate UML')
+        self.uml_button.clicked.connect(self.generateUML)
+        layout.addWidget(self.uml_button)
+
+        self.doc_button = QPushButton('Generate Documentation')
+        self.doc_button.clicked.connect(self.generateDocumentation)
+        layout.addWidget(self.doc_button)
+
         self.setLayout(layout)
 
     def selectFile(self):
@@ -112,6 +192,7 @@ class SymbolTableGenerator(QWidget):
             self.loadFile(file_path)
 
     def loadFile(self, file_path):
+        self.file_path = file_path
         try:
             with open(file_path, 'r') as file:
                 content = file.read()
@@ -120,6 +201,26 @@ class SymbolTableGenerator(QWidget):
             self.generateSymbolTable()
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Failed to load file: {str(e)}')
+
+    def saveFile(self):
+        file_dialog = QFileDialog(self)
+        file_dialog.setAcceptMode(QFileDialog.AcceptSave)
+        file_dialog.setNameFilter("Python files (*.py)")
+        if file_dialog.exec_():
+            file_path = file_dialog.selectedFiles()[0]
+            try:
+                with open(file_path, 'w') as file:
+                    file.write(self.editor.text())
+                QMessageBox.information(self, 'Save Successful', f'File saved to {file_path}')
+            except Exception as e:
+                QMessageBox.critical(self, 'Save Failed', f'Failed to save file: {str(e)}')
+
+    def clearEditor(self):
+        self.editor.clear()
+
+    def showPythonVersion(self):
+        python_version = sys.version
+        QMessageBox.information(self, 'Python Version', python_version)
 
     def generateSymbolTable(self):
         self.symbol_table = []
@@ -250,6 +351,97 @@ class SymbolTableGenerator(QWidget):
             QMessageBox.information(self, 'Export Successful', f'Symbol table exported to {file_path}')
         except Exception as e:
             QMessageBox.critical(self, 'Export Failed', f'Failed to export XML: {str(e)}')
+
+    def generateUML(self):
+        try:
+            content = self.editor.text()
+            class_diagram = """
+            @startuml
+            """
+            module = ast.parse(content)
+            for node in module.body:
+                if isinstance(node, ast.ClassDef):
+                    class_diagram += f"class {node.name} {{\n"
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef):
+                            class_diagram += f"  +{item.name}()\n"
+                        elif isinstance(item, ast.Assign):
+                            for target in item.targets:
+                                if isinstance(target, ast.Name):
+                                    class_diagram += f"  {target.id}\n"
+                    class_diagram += "}\n"
+            class_diagram += "@enduml"
+            with open("class_diagram.txt", "w") as uml_file:
+                uml_file.write(class_diagram)
+            subprocess.run(["plantuml", "class_diagram.txt"])
+            QMessageBox.information(self, 'UML Generation', 'UML diagram generated and saved as class_diagram.png.')
+        except Exception as e:
+            QMessageBox.critical(self, 'UML Generation Failed', f'Failed to generate UML: {str(e)}')
+
+    def generateDocumentation(self):
+        try:
+            content = self.editor.text()
+            module = ast.parse(content)
+            docstrings = {}
+            for node in ast.walk(module):
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                    docstrings[node.name] = ast.get_docstring(node) or "No docstring available"
+            doc_info = "\n".join(f"{key}:\n{value}\n" for key, value in docstrings.items())
+            pydoc_output = subprocess.check_output([sys.executable, '-m', 'pydoc', self.file_path], universal_newlines=True)
+            detailed_info = f"Docstrings:\n{doc_info}\n\nPydoc Output:\n{pydoc_output}"
+            dialog = DetailedInfoDialog('Documentation', detailed_info)
+            dialog.exec_()
+        except Exception as e:
+            QMessageBox.critical(self, 'Documentation Generation Failed', f'Failed to generate documentation: {str(e)}')
+
+    def findText(self):
+        text, ok = QInputDialog.getText(self, 'Find Text', 'Enter text to find:')
+        if ok and text:
+            if not self.editor.findFirst(text, False, False, False, True):
+                QMessageBox.information(self, 'Find Text', f'No occurrences of "{text}" found.')
+
+    def replaceText(self):
+        find_text, ok1 = QInputDialog.getText(self, 'Replace Text', 'Enter text to find:')
+        if ok1 and find_text:
+            replace_text, ok2 = QInputDialog.getText(self, 'Replace Text', 'Enter replacement text:')
+            if ok2 and replace_text:
+                self.editor.selectAll()
+                content = self.editor.text().replace(find_text, replace_text)
+                self.editor.setText(content)
+
+    def showVariables(self):
+        content = self.editor.text()
+        module = ast.parse(content)
+        variables = [node.id for node in ast.walk(module) if isinstance(node, ast.Name)]
+        var_info = "\n".join(variables)
+        dialog = DetailedInfoDialog('Variables', var_info)
+        dialog.exec_()
+
+    def showClasses(self):
+        content = self.editor.text()
+        module = ast.parse(content)
+        classes = [node.name for node in ast.walk(module) if isinstance(node, ast.ClassDef)]
+        class_info = "\n".join(classes)
+        dialog = DetailedInfoDialog('Classes', class_info)
+        dialog.exec_()
+
+    def showFunctions(self):
+        content = self.editor.text()
+        module = ast.parse(content)
+        functions = [node.name for node in ast.walk(module) if isinstance(node, ast.FunctionDef)]
+        func_info = "\n".join(functions)
+        dialog = DetailedInfoDialog('Functions', func_info)
+        dialog.exec_()
+
+    def showCallStack(self):
+        stack = traceback.format_stack()
+        stack_info = "".join(stack)
+        dialog = DetailedInfoDialog('Call Stack', stack_info)
+        dialog.exec_()
+
+    def toggleLineNumbers(self):
+        margin_width = self.editor.marginWidth(0)
+        self.editor.setMarginWidth(0, 0 if margin_width else '0000')
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
